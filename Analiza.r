@@ -146,7 +146,9 @@ proba_uczaca_merged$device_type[grepl('Playstation',proba_uczaca_merged$device_t
 
 proba_uczaca_merged$device_type[grepl('Windows NT 10.0',proba_uczaca_merged$device_type,ignore.case = TRUE)] <- 'Windows NT 10.0'
 
-table(proba_uczaca_merged$device_type)
+proba_uczaca_merged$device_type[grepl('Windows NT 10.0',proba_uczaca_merged$device_type,ignore.case = TRUE)] <- 'Windows NT 10.0'
+
+table(proba_uczaca_merged$countrycode)
 
 
 
