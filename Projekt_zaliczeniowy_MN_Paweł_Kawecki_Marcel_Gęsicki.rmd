@@ -485,6 +485,8 @@ init_screenwidth,screenwidth,screenheight,other_software_info,expirymonth,expiry
 proba_testowa_model_amount <- proba_testowa_nodel 
 
 ```
+Powyżej przeprowadzone zostało wyczyszczenie i dostosowane danych do modeli drzew regresyjnych.
+
 **Porównanie modeli z ograniczaniem wartości skrajnych**
 ```{r}
 proba_uczaca_model_amount_1500 = filter(proba_uczaca_model_amount, amount <= 1500)
@@ -495,7 +497,7 @@ Do nauczania modeli drzew regresyjnych wykorzystano:
   b) ograniczenie zmiennej amount do wartości 1500 
   c) ograniczenie zmiennej amount do wartości 1000
 
-# Budowa pierwszego modelu drzewa regresyjnego  
+**Budowa trzech modeli regresyjnych**
 
 ```{r}
 drzewo_amount_przeuczone = rpart(
@@ -526,7 +528,7 @@ big.drzewo_reg_decyzyjne = rpart.rules(x = big.drzewo)
 big.drzewo_reg_decyzyjne
 ```
 
-# XXX - ocena reguł
+W powyższej części przedstawione zostały wartości jakie poprzez decyzyjność prowadziły do kolejnych decyzji jakie podejmowane zostały w badanym modelu regresyjnym.
 
 *** Przycinanie i porównanie drzew na podstawie średniego błędu**
 
@@ -565,7 +567,7 @@ plot(x  =proba_uczaca_model_amount$amount, y = predykcje)
 plot(x  =proba_uczaca_model_amount_1500$amount, y = predykcje_1500)
 plot(x  =proba_uczaca_model_amount_1000$amount, y = predykcje_1000)
 ```
-# Wizualizacja przycietego drzewa
+**Wizualizacja przycietego drzewa**
 
 ```{r}
 rpart.plot(drzewo_przyciete_1500,
@@ -577,8 +579,7 @@ rpart.rules(drzewo_przyciete_1500, style = "tallw")
 predykcje_1500$error
 ```
 
-# Decyzja - pozostajemy na poziomie 1500 wartości -  DODAĆ INTERPRETACJE
-
+Na podstawie wyników testów średniego błędu kwadratowego, średniego błędu oraz wizualizacji danych postanowiliśmy o wyborze modelu z danymi poniżej wartości amount 1500. Warto zwrócić uwagę, że pod względem wartości błędu lepsze wyniki przejawiał model z ucięciem poniżej 1000 wartości zmiennej amount. Niemniej jednak w takim przypadku pozwolilbyśmy sobie na pozbawienie naszych predykcji wyników wyższych wartości, które są w odpowiednim stopniu interpretowane przez wybrany przez nas model 1500. Patrząc na wizualną część prezentacji zbudowanego przez nas drzewa możemy zwrócić uwagę na jego sporą konstrukcję składającą się z licznych rozgałęzień doprowadzających do dobrych wnioskowań decyzyjnych o wartości predykcji i zmiennej amount.
 
 
 ###MARS MODEL
