@@ -5,19 +5,12 @@ load(file = "C:/Users/Paweł/Desktop/Pulpit/Informatyka i ekonometria materiały
 
 
 
-# Realizacja zadań powinna obejmować:
-
-# Wstępną eksplorację danych 
-# Wzbogacanie danych (utworzenie dodatkowych zmiennych, np. dzień tygodnia na podstawie createtime, przypisanie cech transakcji inicjalizującej do transakcji rekurencyjnej)
-# Budowanie modelu
-# Prezentację i interpretację wyników modelu
-# Krytyczną ocenę uzyskanych modeli
-# Predykcję modelowanych zmiennych na danych testowych (predykcje należy zapisać w odpowiednich kolumnach obiektu predykcje_testowa)
-
+Instalacja i załadowanie potrzebnych bibliotek:
+```{r}
 install.packages("rpart.plot")
 install.packages("ElemStatLearn")
 install.packages('e1071')
-install.packages("earth")
+install.packages(earth)
 library(earth)
 library(e1071)
 library(rpart)
@@ -30,116 +23,142 @@ library(ggplot2)
 library(stringr)
 library("data.table")
 library(vip)
-
-#Względna liczba braków rekordów danych
+```
+**Sprawdzenie względnej liczby braków rekordów danych**
+```{r}
 cbind(colSums((is.na(proba_testowa)/15185)*100))
 cbind(colSums((is.na(proba_uczaca)/nrow(proba_uczaca))*100))
+```
 
+**Prezentacja zbioru danych próby uczącej oraz testowej**
+```{r}
 head(proba_uczaca)
 head(proba_testowa)
-#Wykres dla status unikatowa liczba dla kolumn
+```
+
+
+**Sprawdzenie rozkładu odpowiedzi zmiennej status**
+```{r}
 ggplot(proba_uczaca, aes(x = status)) +
   geom_bar()
+```
 
-#Liczba unikatowych wyborów w status 
-table(proba_uczaca$status)
 
-#recurring action = MANUAL wystepuje tylko w probie testowej w liczebnosci 3. Nie mozna przewidziec ze wzgledu na za mala liczbe
-#przypadkow oraz niedostepnosc kategorii w probie uczacej w celu przyuczenia modelu do takiej transakcji. JEst to wyjątek w kategorii
-# wystepujacy tylko w przypadku jednej transakcji initial 125778
+**Badanie informacji o zmiennej recurringaction**
+
+```{r}
 head(proba_testowa %>%
     filter(proba_testowa$recurringaction == 'MANUAL'),n=3)
 
 table(proba_uczaca$recurringaction)
-#Bardzo rzadka liczba transakcji kartą MAESTRO. Głównie transkacje wykonywane za pomocą kart
-#MasterCard oraz VISA
 
+```
+Recurring action o wartości MANUAL występuje tylko w próbie testowej w liczebności 3 w przypadku transakcji 125778. Nie mozna przewidzieć statusu takiej obserwacji ze względu na rzadkość 
+przypadków oraz niedostępność kategorii w probie uczacej w celu przyuczenia modelu do takiej transakcji W związku z tym zmienna ta zostanie zamieniona na wartość AUTO, aby móc dokonać predykcji na podstawie zbioru testowego.
+
+```{r}
 ggplot(proba_uczaca, aes(x = issuer)) +
   geom_bar()
 
-#Przewaga liczby transkacji kartą debetową.
+  ```
 
+Bardzo rzadka liczba transakcji kartą MAESTRO. Głównie transkacje wykonywane za pomocą kart
+MasterCard oraz VISA
+
+```{r}
 ggplot(proba_uczaca, aes(x = type)) +
   geom_bar()
+```
+Występuje przewaga liczby transakcji kartą kredytową.
 
 
-#Ujednolicenie danych ze względu na różną pisownie w opisie transakcji
+**Ujednolicenie danych ze względu na różną pisownie w opisie transakcji**
+
+```{r}
+table(proba_uczaca$description)
 proba_uczaca["description"][proba_uczaca["description"] == "PLAY - FAKTURA"] <- "PLAY - faktura"
 proba_uczaca["description"][proba_uczaca["description"] == "RedBull Mobile - FAKTURA"] = 'RedBull Mobile - faktura'
 proba_uczaca["description"][proba_uczaca["description"] == "Szybkie sprawdzanie firmy"] = 'Szybkie sprawdzanie'
+```
+
+
+
 
 #Zmiana wartosci na other dla rzadkich typów klas karty
 card_level_names <- c(names(table(proba_uczaca$level))[as.vector(table(proba_uczaca$level))>100])
 proba_uczaca$level <- ifelse(proba_uczaca$level %in% card_level_names,proba_uczaca$level, "OTHER")
 table(proba_uczaca$level)
 
-#Zmiana wartosci na other dla niewielu obserwacji country code
+**Zmiana wartosci na other dla kategorii country code z niewielką liczbą obserwacji**
+```{r}
+table(proba_uczaca$countrycode)
 country_names <- c(names(table(proba_uczaca$countrycode))[as.vector(table(proba_uczaca$countrycode))>99])
 proba_uczaca$countrycode <- ifelse(proba_uczaca$countrycode %in% country_names,proba_uczaca$countrycode, "OT")
-table(proba_uczaca$countrycode)
+```
+**Ujednolicenie rzadkich wartości w zmiennej mccname**
+```{r}
+table(proba_uczaca$mccname)
+proba_uczaca_merged["mccname"][proba_uczaca_merged["mccname"] == "Sklepy kosmetyczne"] = 'Usługi biznesowe gdzie indziej nie sklasyfikowane'
+```
 
-#Podział tablicy danych na tablice z transakcjami inicującycmi i rekurencyjnymi.
-#Następnie do rzędów transakcji rekurencyjnych dodane są dane o transakcji inicjujących 
+**Podział danych na tablice z transakcjami inicującycmi i rekurencyjnymi**
+```{r}
 table(proba_uczaca$recurringaction)
 proba_uczaca_recurring <- subset(proba_uczaca, recurringaction =="AUTO")
 proba_uczaca_initial <- subset(proba_uczaca, recurringaction !="AUTO")
 
-#Zmiana nazw kolumn w celu identyfikacji column initial po dodaniu do tablicy danych recurring
 names(proba_uczaca_initial)<- paste0('init', "_",names(proba_uczaca_initial))
 
-
 proba_uczaca_merged <- merge(y = proba_uczaca_initial, x = proba_uczaca_recurring, by.x = 'initialtransaction_id', all.x = TRUE, by.y = 'init_id')
-proba_uczaca_merged["mccname"][proba_uczaca_merged["mccname"] == "Sklepy kosmetyczne"] = 'Usługi biznesowe gdzie indziej nie sklasyfikowane'
+```
+Do danych o transakcjach rekurencyjnych zostały dodane wartości o transakcjach inicjujących
 
+**Wyciagnięcie zmiennej daty, dnia tygodnia oraz godziny ze zmiennej createtime**
 
-ggplot(proba_uczaca_merged, aes(x = acquirerconnectionmethod)) +
-  geom_bar()
-
-
-#Do wyciągnięcia: pełna data, godzina, dzień tygodnia ze względu na możliwość różnicy w liczbie transkacji wykonywanych w danym momencie, co może miec wpływ na pomyślne wykonanie
-#Wyciagnięcie daty z createtime
-
+```{r}
 proba_uczaca_merged$recurring_createdate <- as.Date(proba_uczaca_merged$createtime,format="%Y-%m-%d")
 proba_uczaca_merged$init_createdate <- as.Date(proba_uczaca_merged$init_createtime,format="%Y-%m-%d")
-
-
-#Wyciąganie dnia tygodnia
 
 proba_uczaca_merged$recurring_weekday <- weekdays(as.Date(proba_uczaca_merged$createtime))
 proba_uczaca_merged$init_weekday <- weekdays(as.Date(proba_uczaca_merged$init_createtime))
 
-#Wyciagnięcie godziny z createtime
-
 proba_uczaca_merged$recurring_hour <- format(proba_uczaca_merged$createtime,format="%H")
 proba_uczaca_merged$init_hour <- format(proba_uczaca_merged$init_createtime,format="%H")
 
-head(proba_uczaca_merged)
+```
+Wyciągnięte zostały zmienne data, godzina oraz dzień tygodnia ze względu na możliwość różnicy w liczbie transkacji wykonywanych w danym momencie, co może miec wpływ na pomyślne wykonanie transakcji.
 
-#Wyciagnięcie zmiennej expired_card
+
+**Zmienne dotyczące transakcji przy użyciu przeterminowanej karty**
+```{r}
 proba_uczaca_merged$expiry_date =  format(as.Date(paste(proba_uczaca_merged$expiryyear, proba_uczaca_merged$expirymonth,"01", sep = '-')), format = "%Y-%m-01")
 proba_uczaca_merged$compare_to_expiry = format(proba_uczaca_merged$createtime, format="%Y-%m-01")
 head(proba_uczaca_merged$expiry_date==proba_uczaca_merged$compare_to_expiry)
 proba_uczaca_merged$expired_card = as.integer(as.logical(proba_uczaca_merged$expiry_date<proba_uczaca_merged$compare_to_expiry))
+```
 
-#Zamiana jednostek wysokości i szerekości do komputera bądź telefonu
-
+**Porównanie jednostek wysokości i szerekości w celu identyfikacji urządzenia użytego podczas transakcji**
+```{r}
 plot(proba_uczaca_merged$init_screenheight,proba_uczaca_merged$init_screenwidth)
 proba_uczaca_merged["device"] <- NA
-proba_uczaca_merged["device"][proba_uczaca_merged["init_screenwidth"]<proba_uczaca_merged["init_screenheight"]] <- "mobilephone"
+proba_uczaca_merged["device"][proba_uczaca_merged["init_screenwidth"<proba_uczaca_merged["init_screenheight"]] <- "mobilephone"
 proba_uczaca_merged["device"][proba_uczaca_merged["init_screenwidth"]>=proba_uczaca_merged["init_screenheight"]] <- "computer"
-
-#Barplot dla device
-
-  ggplot((proba_uczaca_merged), aes(x = device)) +
-  geom_bar()
+ggplot((proba_uczaca_merged), aes(x = device)) +
+geom_bar()
+```
 
 
+
+**Wyciągnięcie zmiennych przeglądarkę i system operacyjny urządzenia**
+```{r}
 proba_uczaca_merged[c('browser', 'other_software_info')] <- str_split_fixed(proba_uczaca_merged$init_browseragent, ' ', 2)
-
 proba_uczaca_merged[c('device_type', 'other_software_info')] <- substring(str_split_fixed(proba_uczaca_merged$other_software_info, ';', 2),2)
+```
 
-#Podmiana wartości
 
+**Podmiana wartości**
+
+```{r}
 proba_uczaca_merged$device_type[grepl('Windows NT 6.1',proba_uczaca_merged$device_type,ignore.case = TRUE)] <- 'Windows NT 6.1'
 
 proba_uczaca_merged$device_type[grepl('Playstation',proba_uczaca_merged$device_type,ignore.case = TRUE)] <- 'Playstation 4'
@@ -147,26 +166,28 @@ proba_uczaca_merged$device_type[grepl('Playstation',proba_uczaca_merged$device_t
 proba_uczaca_merged$device_type[grepl('Windows NT 10.0',proba_uczaca_merged$device_type,ignore.case = TRUE)] <- 'Windows NT 10.0'
 
 proba_uczaca_merged$device_type[grepl('Windows NT 10.0',proba_uczaca_merged$device_type,ignore.case = TRUE)] <- 'Windows NT 10.0'
-#Zmiana wartosci na other dla rzadkich typów klas karty
+```
+
+**Zmiana wartosci na other dla rzadkich typów klas karty**
+```{r}
 device_type_names <- c(names(table(proba_uczaca_merged$device_type))[as.vector(table(proba_uczaca_merged$device_type))>500])
 proba_uczaca_merged$device_type <- ifelse(proba_uczaca_merged$device_type %in% device_type_names,proba_uczaca_merged$device_type, "OTHER")
+```
 
-##### USUWANIE ZMIENNYCH KLASYFIKACJI
 
-###Postanowić jakie zmienne są przydatne wgl do modelu. Ustalenie jakie mają sens dla transakcji.
-
+**Usuwanie zmiennych w celu przygotowania zbioru do modelu klasyfikacji zmiennej status**
+```{r}
 proba_uczaca_merged_nodel <- proba_uczaca_merged
 proba_uczaca_merged <- subset(proba_uczaca_merged, select = -c(initialtransaction_id,id,description,init_createdate, init_payclickedtime, payclickedtime,init_payclickedtime, init_listtype,init_mccname,init_status,init_initialtransaction_id, createtime, init_createtime,browseragent,
 init_browseragent,init_screenheight,init_screenwidth,screenwidth,screenheight,other_software_info,expirymonth,expiryyear,mccname, listtype,init_expirymonth,init_expiryyear,compare_to_expiry,expiry_date))
+```
 
-
-cbind(colSums((is.na(proba_uczaca_merged)/nrow(proba_uczaca_merged))*100))
-
-## DATASET DO MODELOWANIA:
+**ZBIÓR DANYCH PRÓBY UCZĄCEJ**
 proba_uczaca_model <- proba_uczaca_merged
-head(proba_uczaca_model)
-# Przygotowanie zbioru testowego
 
+**Przygotowanie zbioru testowego** 
+Zbiór testowy został przygotowany analogicznie do kroków w zbiorze uczącym. Zmienne rzadkie, które nie wystąpiły w zbiorze uczącym zostały ujednolicone przy pomocy kategorii OTHER/OT.
+```{r}
 #Ujednolicenie danych ze względu na różną pisownie w opisie transakcji
 proba_testowa["description"][proba_testowa["description"] == "PLAY - FAKTURA"] <- "PLAY - faktura"
 proba_testowa["description"][proba_testowa["description"] == "RedBull Mobile - FAKTURA"] = 'RedBull Mobile - faktura'
@@ -176,7 +197,6 @@ proba_testowa["description"][proba_testowa["description"] == "Szybkie sprawdzani
 #Zmiana wartosci na other dla rzadkich typów klas karty
 card_level_names <- c(names(table(proba_testowa$level))[as.vector(table(proba_testowa$level))>100])
 proba_testowa$level <- ifelse(proba_testowa$level %in% card_level_names,proba_testowa$level, "OTHER")
-
 
 
 #Zmiana wartosci na other dla niewielu obserwacji country code
@@ -246,71 +266,77 @@ proba_testowa_merged$device_type[grepl('Windows NT 10.0',proba_testowa_merged$de
 device_type_names <- c(names(table(proba_testowa_merged$device_type))[as.vector(table(proba_testowa_merged$device_type))>500])
 proba_testowa_merged$device_type <- ifelse(proba_testowa_merged$device_type %in% device_type_names,proba_testowa_merged$device_type, "OTHER")
 
-##### USUWANIE ZMIENNYCH KLASYFIKACJI
-
-###Postanowić jakie zmienne są przydatne wgl do modelu. Ustalenie jakie mają sens dla transakcji.
+#USUWANIE ZMIENNYCH DO KLASYFIKACJI
 
 proba_testowa_nodel<- proba_testowa_merged
-proba_testowa_merged <- subset(proba_testowa_merged, select = -c(initialtransaction_id,description,init_createdate, init_payclickedtime, payclickedtime,init_payclickedtime, init_listtype,init_mccname,init_initialtransaction_id, createtime, init_createtime,browseragent,
+proba_testowa_merged <- subset(proba_testowa_merged, select = -c(initialtransaction_id,id,description,init_createdate, init_payclickedtime, payclickedtime,init_payclickedtime, init_listtype,init_mccname,init_initialtransaction_id, createtime, init_createtime,browseragent,
 init_browseragent,init_screenheight,init_screenwidth,screenwidth,screenheight,other_software_info,expirymonth,expiryyear,mccname, listtype,init_expirymonth,init_expiryyear,compare_to_expiry,expiry_date))
+```
 
-head(proba_testowa_merged)
 
-####### ZADANIE 1 PREDYKCJA STATUSU
+# ZADANIE 1 - PREDYKCJA ZMIENNEJ JAKOŚCIOWEJ STATUS
 
-#Zmiana status na wartość dychotomiczną 
+**Zmiana status na wartość dychotomiczną**
+
+```{r}
 proba_uczaca_model$status = as.character(proba_uczaca_model$status)
 proba_uczaca_model$status = as.factor(proba_uczaca_model$status)
 proba_uczaca_model$status  = factor(x = proba_uczaca_model$status, levels=c("completed successfully","card limit exceeded","bank declined","do not honor"),labels = c(1,0,0,0))
+```
+W celu przeprowadzenia klasyfikacji ujednolicona została zmienna status a wartości udane (1) i nie udane (0).
 
-
-### Zbudować drzewo klasyfikacyjne (zmienna celu: status)
-head(proba_uczaca_model)
-
+**Budowanie drzewa klasyfikacjnego (zmienna celu: status)**
+```{r}
 big.drzewo = rpart(
   formula = status~.,
   data = proba_uczaca_model,
   control= rpart.control(cp=0.005)
   )
-
-big.drzewo
-
 rpart.plot(
   x = big.drzewo,
   box.palette = "Orange",
 )
+```
+Wykonane zostało przeuczenie modelu drzewa klasyfikacyjnego z małą wartością progową zmiany na kolejnych połączeniach (cp), w celu uzyskania jak największej liczby liści i tym samym jak największej głębokość drzewa.
 
-#reguły decyzyjne
+**Reguły decyzyjne przeuczonego drzewa klasyfikacyjnego**
+```{r}
+
 big.drzewo_reg_decyzyjne = rpart.rules(x = big.drzewo)
 big.drzewo_reg_decyzyjne
+```
+Zmienną wziętą pod uwagę przy pierwszym podziale zmiennych licząc od korzenia jest zmienna recurring hour. Następnymi zmiennymi były data wykonania transakcji rekurencyjnej oraz typ karty użytej w transakcji. Co ciekawe wpływową zmienną okazuje się być również godzina transakcji inicjującej, ale prawdopodobnie jest to pozorna korelacja, natomiast jest to modelowanie nieparametryczne a zatem można przyjąć, że prawidłowa predykcja jest ważniejsza niż interpretowalność modelu.
 
 
+**Ustalanie optymalnych parametrów modelu (przycinanie drzewa)**
 
-# Ustalić optymalne parametry modelu (wielkość drzewa)
-
+```{r}
 bledy = big.drzewo$cptable
 
-nr.min.cp <- which.min(bledy[, "xerror"])  # numer min cp błąd w sprawdzaniu krzyżowym
-prog.odciecia <- sum(bledy[nr.min.cp, c("xerror", "xstd")]) # prog odciecia (min błąd + odchylenie standardowe)
-nr.optymalny <- which(bledy[, "xerror"] < prog.odciecia)[1] # nr optymalnego drzewa
+nr.min.cp <- which.min(bledy[, "xerror"]) 
+prog.odciecia <- sum(bledy[nr.min.cp, c("xerror", "xstd")]) 
+nr.optymalny <- which(bledy[, "xerror"] < prog.odciecia)[1] 
 cp.optymalny = bledy[nr.optymalny, "CP"]
-prog.odciecia
+
 
 przyciete <- prune(tree = big.drzewo, 
-                       cp = cp.optymalny) # przycięcie drzewa
+                       cp = cp.optymalny) 
 rpart.plot(przyciete)
+```
+Kolejnym etapem było doprowadzenie do przycięcia badanego drzewa klasyfikacyjnego na podstawie najniższego błędu. Optymalny poziom cp wyszedł około 0,005. Po przeliczeniu błędu mniejszego od obliczoneo progu odcięcia stwierdzono, iż optymalna liczba rozgałezień to 9.
 
 
-
-# Odczytać ważność zmiennych
-
+**Ważność zmiennych
+```{r}
 przyciete$variable.importance
 
 dotchart(rev(przyciete$variable.importance))
+```
+Na podstawie wykresu ważności zmiennych możemy powiedzieć, że największy wpływ na sukces transakcji ma godzina, data oraz wartość wykonywanej transakcji rekurencyjne, oraz typ i wartość transakcji inicjującej do niej przynależnej.
 
+**Sprawdzenie dokładności predykcji na podstawie zbioru uczącego**
 
-# Sprawdzić dokładność modelu na zbiorze uczacym
-
+```{r}
 przyciete <- prune(tree = big.drzewo, 
                        cp = cp.optymalny) # przycięcie drzewa
 
@@ -325,6 +351,7 @@ table(Rzeczywiste = proba_uczaca_model$status,
       Przewidywane = predykcja.uczaca )
 
 #Błąd klasyfikacji.
+
 mean(proba_uczaca_model$status != predykcja.uczaca)
 
 cbind(przyciete$variable.importance[1:5])
@@ -340,17 +367,25 @@ predykcja.statusu = predict(
 
 length(predykcja.statusu)
 
+```
 
-### model BAGGING
+Na podstawie tablicy krzyżowej możemy powiedzieć, że w przypadku przyciętego drzewa mamy 21601 prawidłowo sklasyfikowanych obserwacji oraz 3844 nieprawidłowo sklasyfikowane. W przypadku tego modelu średni błąd klasyfikacji wynosi 15.1%.
 
+W celu poprawy predykcji modelu przeprowadziliśmy użycie baggingu. Próby dobierane są losowo, a algorytm baggingu każdy model uczy niezależnie od siebie.
+
+**Proces przeprowadzania baggingu (lasy losowe)**
+**Podział próby uczącej na podpróbę uczącą i walidacyjną**
+```{r}
 #podział grupy uczacej na uczacą i walidacje
 grupy <- sample(rep(c("uczacy", "walidacja"),
                     round(c(0.8, 0.2)*nrow(proba_uczaca_model))))
 
 df.bagging.uczacy <- proba_uczaca_model[grupy == "uczacy", ]
 df.bagging.walidacyjny <- proba_uczaca_model[grupy == "walidacja", ]
+```
+Aby zweryfikowac dokładność i sprawdzić błąd predykcji modelu lasu losowego przedd wykonaniem predykcji na zbiorze testowym, podzielono zbiór uczący na podzbiór uczący i walidacyjny.
 
-
+```{r}
 drzewo.bagging.check <- bagging(
   formula = status ~.,
   data = df.bagging.uczacy,
@@ -365,7 +400,11 @@ barplot(table(df.bagging.uczacy$status, drzewo.bagging.check$votes[,2]),
         args.legend = list(x = "top",
         title = "Rzeczywista klasa"),
         xlab = "Liczba głosów na tak")
-# Sprawdzić dokładność modelu na zbiorze testowym
+```
+W pierwszej kolejności wykonane zostanie przeuczenie drzewa, polegające na przyjęciu krańcowej wartości cp na 0 poziomie, która pozwala na wykonywanie podziałów nawet w przypadku gdy nie wpływają one na poprawę względnego błędu modelu.
+
+**Ustalenie optymalnej liczby drzew**
+```{r}
 
 predykcje_valid <- predict(drzewo.bagging.check, newdata = df.bagging.walidacyjny)
 
@@ -374,18 +413,28 @@ bledy.walidacyjny <-errorevol(drzewo.bagging.check, df.bagging.walidacyjny)
 
 plot.errorevol(x = bledy.walidacyjny,
                y = bledy.uczacy)
-
-
-# Ustalić optymalną liczbę modeli bazowych
 p <- min(bledy.walidacyjny$error)
 se <- (p*(1-p)/nrow(df.bagging.walidacyjny))^0.5
 
 optymalne.m <- which(bledy.walidacyjny$error < p +se)[1]
 optymalne.m
-#error na baggingu jest mniejszy o 0.03 od błedu na przycietym drzewie losowym, 
-#zatem wybrano model baggingu do predykcji
-predykcje_valid$error
+)
+```
+Porównanie błędów dla zbioru walidacyjnego i zbioru uczącego wskazują, że błąd znacznie spada w początkowych iteracjach. Po piątej iteracji błąd pozostaje prawie, że niezmienny, aż po okres 20 iteracji.
 
+Optymalna liczba drzew wynosi 7 i zostanie wykorzystana jako parametr w ostatecznym modelu użytym do predykcji. 
+
+**Analiza dokładności modelu na zbiorze uczącym (uczący/walidacyjny)**
+
+```{r}
+predykcje_valid <- predict(drzewo.bagging.check, newdata = df.bagging.walidacyjny)
+predykcje_valid$error
+```
+Błąd predykcji na zbiorze walidacyjnym wskazuje, że poprawił się on w stosunku do modelu drzewa klasyfikacyjnego o 0.03.
+Zatem do ostatecznej predykcji na zbiorze testowym wykorzystany zostanie model baggingu.
+
+**Las losowy z optymalnym parametrem liczby drzew**
+```{r}
 drzewo.bagging.final <- bagging(
   formula = status ~.,
   data = proba_uczaca_model,
@@ -393,7 +442,10 @@ drzewo.bagging.final <- bagging(
   control = rpart.control(cp = 0)
 )
 
-# Przeanalizować rozkłady głosów
+```
+**Rozkład głosów**
+
+```{r}
 head(drzewo.bagging.final$votes,15)
 
 barplot(table(proba_uczaca_model$status, drzewo.bagging.final$votes[, 1]),
@@ -401,52 +453,51 @@ barplot(table(proba_uczaca_model$status, drzewo.bagging.final$votes[, 1]),
         args.legend = list(x = "top",
                            title = "Rzeczywista klasa"),
         xlab = "Liczba głosów na TAK")
-
 table(proba_uczaca_model$status, drzewo.bagging.final$votes[, 1])
+```
+Przedstawiony powyżej wykres oraz tablica głosów definitywnie wskazują, że aż 7 drzew wskazuje na 14 tys. transakcji udanych. Kolejne drzewa proporcjonalnie zmniejszają ilość głosów. W 6 drzewach głosów za udaną transakcją jest już około 4 tys.
+Przechodzić będziemy teraz do predykcji.
+
+**Predykcja statusu dla zbioru testowego**
+```{r}
 predykcje <- predict(drzewo.bagging.final, newdata = proba_testowa_merged)
 length(predykcje$class)
-
-
 to.merge <- data.frame(cbind(id = as.numeric(proba_testowa_merged$id),pred = ifelse(predykcje$class=="1","sukces","porażka")))
-head(to.merge)
-head(proba_testowa_merged)
 predykcje_testowa.m <- merge(predykcje_testowa, to.merge, by.x = 'id', by.y = 'id', all.x = T)
 predykcje_testowa.m <- predykcje_testowa.m %>% dplyr::select(-status) %>% mutate(status = pred) %>% dplyr::select(-pred)
 
 predykcje_testowa <- predykcje_testowa.m
+```
+Przypisanie statusu predykowanego do zbioru wyjściowego.
 
 
-###ZADANIE 2 - REGRESJA ZMIENNEJ AMOUNT
+# ZADANIE 2 - PREDYKCJA ZMIENNEJ ILOŚCIOWEJ AMOUNT
+
+
+**Wybór zmiennych do modelu**
+```{r}
 proba_uczaca_merged_nodel <- subset(proba_uczaca_merged_nodel, select = -c(initialtransaction_id,id,init_createdate, init_payclickedtime, payclickedtime,init_initialtransaction_id, createtime, init_createtime,browseragent,init_browseragent,init_screenheight,
 init_screenwidth,screenwidth,screenheight,other_software_info,expirymonth,expiryyear,expiry_date,init_expirymonth,init_expiryyear,compare_to_expiry,expiry_date,init_status, init_mccname,init_listtype,expired_card,recurringaction,status))
 proba_uczaca_model_amount <- proba_uczaca_merged_nodel 
-colnames(proba_uczaca_model_amount)
-proba_testowa_nodel <- subset(proba_testowa_nodel, select = -c(init_createdate, init_payclickedtime, payclickedtime,init_initialtransaction_id, createtime, init_createtime,browseragent,init_browseragent,init_screenheight,
+
+proba_testowa_nodel <- subset(proba_testowa_nodel, select = -c(id,init_createdate, init_payclickedtime, payclickedtime,init_initialtransaction_id, createtime, init_createtime,browseragent,init_browseragent,init_screenheight,
 init_screenwidth,screenwidth,screenheight,other_software_info,expirymonth,expiryyear,expiry_date,init_expirymonth,init_expiryyear,compare_to_expiry,expiry_date, init_mccname,init_listtype,expired_card,recurringaction,amount))
 proba_testowa_model_amount <- proba_testowa_nodel 
 
-
+```
+**Porównanie modeli z ograniczaniem wartości skrajnych**
+```{r}
 proba_uczaca_model_amount_1500 = filter(proba_uczaca_model_amount, amount <= 1500)
 proba_uczaca_model_amount_1000 = filter(proba_uczaca_model_amount, amount <= 1000)
-# Zbudować model drzewa regresyjnego
-head(proba_uczaca_model_amount_1500)
-drzewo_amount = rpart(
-  formula = amount ~.,
-  data = proba_uczaca_model_amount
-)
+```
+Do nauczania modeli drzew regresyjnych wykorzystano:
+  a) pełen zakres zmiennej amount
+  b) ograniczenie zmiennej amount do wartości 1500 
+  c) ograniczenie zmiennej amount do wartości 1000
 
+# Budowa pierwszego modelu drzewa regresyjnego  
 
-
-# Narysować wykres drzewa
-
-rpart.plot(drzewo_amount,
-           branch.type = 5)
-
-
-rpart.rules(drzewo_amount, style = "tallw")
-
-# Ustalić optymalną wielkość drzewa na podstawie sprawdzania krzyżowego
-
+```{r}
 drzewo_amount_przeuczone = rpart(
   formula = amount ~.,
   data = proba_uczaca_model_amount,
@@ -464,55 +515,59 @@ drzewo_amount_przeuczone_1000 = rpart(
   data = proba_uczaca_model_amount_1000,
   control = rpart.control(cp = 0)
 )
+```
+Wykonano 3 modele drzew przeuczonych na każdej z poszczególnych zbiorów obserwacji.
 
-
-
-Reguły decyzyjne przeuczonego drzewa klasyfikacyjnego
-
+**Reguły decyzyjne przeuczonego drzewa klasyfikacyjnego**
+```{r}
 drzewo_amount_przeuczone$cptable
 drzewo_przeuczone$cptable
 big.drzewo_reg_decyzyjne = rpart.rules(x = big.drzewo)
 big.drzewo_reg_decyzyjne
+```
 
+# XXX - ocena reguł
 
+*** Przycinanie i porównanie drzew na podstawie średniego błędu**
 
-# Ocenić dokładność modelu
-
-
+```{r}
 przycinanie <- function(drzewo) {
   bledy <- drzewo$cptable
-  tmp1 <- which.min(bledy[, "xerror"])  # min b��d w sprawdzaniu krzy�owym
-  tmp2 <- sum(bledy[tmp1, c("xerror", "xstd")]) # min b��d + odchylenie standardowe
-  optymalny <- which(bledy[, "xerror"] < tmp2)[1] # nr optymalnego drzewa
+  tmp1 <- which.min(bledy[, "xerror"])  
+  tmp2 <- sum(bledy[tmp1, c("xerror", "xstd")]) 
+  optymalny <- which(bledy[, "xerror"] < tmp2)[1] 
   
-  prune(drzewo, cp = bledy[optymalny, "CP"]) # przyci�cie drzewa
+  prune(drzewo, cp = bledy[optymalny, "CP"]) 
 }
 
+#przycinanie drzew
 drzewo_przyciete <- przycinanie(drzewo_amount_przeuczone)
 drzewo_przyciete_1500 <- przycinanie(drzewo_amount_przeuczone_1500)
 drzewo_przyciete_1000 <- przycinanie(drzewo_amount_przeuczone_1000)
 
-#Sprzawdzenie predykcji
+#predykcja wartości
 predykcje <- predict(drzewo_przyciete)
 predykcje_1500 <- predict(drzewo_przyciete_1500)
 predykcje_1000 <- predict(drzewo_przyciete_1000)
-#�rednia kwadratowa b��du
+
+#średnie błędy kwadratowe
 mean((proba_uczaca_model_amount$amount - predykcje)^2)
 mean((proba_uczaca_model_amount_1500$amount - predykcje_1500)^2)
 mean((proba_uczaca_model_amount_1000$amount - predykcje_1000)^2)
-#�redni b��d
 
+#średnie błędy
 mean((proba_uczaca_model_amount$amount - predykcje)^2)^0.5
 mean((proba_uczaca_model_amount_1500$amount - predykcje_1500)^2)^0.5
 mean((proba_uczaca_model_amount_1000$amount - predykcje_1000)^2)^0.5
-#B��d to 1400 z�
 
+#Wizualizacja predykcji i wartości realnych
 plot(x  =proba_uczaca_model_amount$amount, y = predykcje)
 plot(x  =proba_uczaca_model_amount_1500$amount, y = predykcje_1500)
 plot(x  =proba_uczaca_model_amount_1000$amount, y = predykcje_1000)
+```
+# Wizualizacja przycietego drzewa
 
-
-
+```{r}
 rpart.plot(drzewo_przyciete_1500,
            branch.type = 5)
 
@@ -520,8 +575,9 @@ rpart.plot(drzewo_przyciete_1500,
 rpart.rules(drzewo_przyciete_1500, style = "tallw")
 
 predykcje_1500$error
-#Decyzja - pozostajemy na poziomie 1500 wartości
-# Ocenić dokładność modelu
+```
+
+# Decyzja - pozostajemy na poziomie 1500 wartości -  DODAĆ INTERPRETACJE
 
 
 
@@ -578,61 +634,70 @@ earth(formula = amount ~ .,
         # 'minspan' - min liczba obserwacji pomiędzy węzłami (dla minspan=1 węzły dla każdej obserwacji)
         # 'thresh' - min zwiększenie R2
 
-gcv.nk <- sapply(seq(70, 190, 30), function(x)
+gcv.nk <- sapply(seq(70, 100, 10), function(x)
         earth(amount ~ .,
               data = proba_uczaca_model_MARS,
               degree = 3,
-              nk = x)$gcv) 
-gcv.nk
- # nk = 130
-gcv.thresh <- sapply(0.1^(1:3), function(x)
-        earth(formula = amount ~ .,
-              data = proba_uczaca_model_MARS,
-              degree = 3,
-              nk = 130,
-              thresh = x)$gcv)  
+              nk = x)$gcv)
 
-# thresh = 0.001
-gcv.minspan <- sapply(seq(1,8,2), function(x)
-        earth(formula = amount ~ .,
+gcv.nk <- sapply(seq(100, 200, 10), function(x)
+        earth(amount ~ .,
               data = proba_uczaca_model_MARS,
               degree = 3,
-              nk = 130,
-              thresh = 0.001,
-              minspan = x)$gcv)
-gcv.minspan
- # minspan = 4
+              nk = x)$gcv)  # nk = 100
+
 mars3 <- earth(formula = amount ~ .,
                data = proba_uczaca_model_MARS,
                degree = 3,
-               nk = 100,
-               thresh = 0.001,
-               minspan = 4)
-
+               nk = 100)
 summary(mars3)
 
-# Sporządzić wykres diagnostyczny modelu
-plot(mars3, info = T)
+gcv.thresh <- sapply(0.1^(3:5), function(x)
+        earth(formula = amount ~ .,
+              data = proba_uczaca_model_MARS,
+              degree = 3,
+              nk = 100,
+              thresh = x)$gcv)  # thresh = 0.0001
 
-# Sprawdzić jaka byłaby optymalna liczba składników (terms) na podstawie sprawdzania krzyżowego
+gcv.minspan <- sapply(1:10, function(x)
+        earth(formula = amount ~ .,
+              data = proba_uczaca_model_MARS,
+              degree = 3,
+              nk = 100,
+              thresh = 0.0001,
+              minspan = x)$gcv) # minspan = 3
+
 mars4 <- earth(formula = amount ~ .,
                data = proba_uczaca_model_MARS,
                degree = 3,
-               nk = 130,
-               thresh = 0.001,
-               minspan = 4,
+               nk = 100,
+               thresh = 0.0001,
+               minspan = 3)
+
+summary(mars4)
+
+# Sporządzić wykres diagnostyczny modelu
+plot(mars4, info = T)
+
+# Sprawdzić jaka byłaby optymalna liczba składników (terms) na podstawie sprawdzania krzyżowego
+mars5 <- earth(formula = amount ~ .,
+               data = proba_uczaca_model_MARS,
+               degree = 3,
+               nk = 100,
+               thresh = 0.0001,
+               minspan = 3,
                pmethod = "cv", # sprawdzanie krzyżowe
                nfold = 10,  # liczba części w sprawdzaniu krzyżowym
                ncross = 1, # ile razy wykonać cv (większa wartość = stabilniejsze wyniki)
                keepxy = T) # zachowanie danych x i y, żeby na wykresach diagnostycznych było cv
 
-plot(mars4, which = 1)
+plot(mars5, which = 1)
 
-summary(mars4)
+summary(mars5)
 
 # Sporządzić wykres przedstawiający wpływ poszczególnych zmiennych niezależnych na zmienną zależną
-plotmo(mars3)
 plotmo(mars4)
+plotmo(mars5)
 plotmo(mars1)
 
 plotmo(mars1, 
@@ -650,3 +715,22 @@ plotmo(mars4,
 
 # Oszacować ważność zmiennych objaśniających
 evimp(mars4)  # jest to ważność w modelu (nie ważność w ogóle dla tego problemu regresji)
+
+# Zinterpretować parametry strukturalne w modelu MARS
+summary(m.mars)
+#ostatnia linijka mowi jaka jest zaleznosc w obszarze > niz 74xa
+#srodkowy skladnik to y srednio zmniejszy sie o -3.35 
+#wartosci pomiedzy sa na poziomie constant
+
+#interpretacja:
+#dla x mniejszych niz 45.09 - jezeli x wzrosnie o jednostke
+#to zmienna y wzrosnie srednio o 3.36 jednostek, pod warunkiem
+#ze x jest mniejszy od 45.09
+#
+
+#jezeli x wzrosnie o jednostke miedzy 45.09 a 73.40 to zmienna y
+#nie zalezy od zmiennej x. zmienna y bedzie srednio na poziomie
+#wyrazu wolnego 167.11
+
+#jezeli x wzrosnie o jednostke to zmienna y zmniejszy sie srednio
+#o 1.44 jednostek pod warunkiem ze x > 73.4
