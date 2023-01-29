@@ -467,7 +467,6 @@ drzewo_amount_przeuczone_1000 = rpart(
 
 
 
-Reguły decyzyjne przeuczonego drzewa klasyfikacyjnego
 
 drzewo_amount_przeuczone$cptable
 drzewo_przeuczone$cptable
@@ -519,8 +518,7 @@ rpart.plot(drzewo_przyciete_1500,
 
 rpart.rules(drzewo_przyciete_1500, style = "tallw")
 
-predykcje_1500$error
-#Decyzja - pozostajemy na poziomie 1500 wartości
+#Decyzja - pozostajmy na poziomie 1500 wartości
 # Ocenić dokładność modelu
 
 
@@ -552,13 +550,13 @@ summary(mars1)
 
 # Dokonać przeglądu wyników modelu 
 X <- mars1$bx # macierz faktycznych predyktorów (w finalnym modelu)
-
+X
 punkty <- mars1$cuts
-
+punkty
 
 mars1$selected.terms
 przycinanie <- mars1$prune.terms
-
+przycinanie
 plot(mars1$rss.per.subset)
 plot(mars1$gcv.per.subset)
 
