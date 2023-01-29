@@ -1,48 +1,46 @@
-load(file ="C:/Users/Marcel/Desktop/Studia/Semestr III/modele nieparametryczne/projekt/dane_zaliczenie.RData")
-
-load(file = "C:/Users/Paweł/Desktop/Pulpit/Informatyka i ekonometria materiały/Semestr 3/Modele nieparametryczne/Projekt_zaliczeniowy_MN/dane_zaliczenie.RData")
-
-
-
-
-Instalacja i załadowanie potrzebnych bibliotek:
+# Projekt - predykcja transakcji przy pomocy modeli nieparametrycznych
+Marcel Gęsicki (282631) Paweł Kawecki (282639)
+**Wstępne załadowanie danych**
 ```{r}
-install.packages("rpart.plot")
-install.packages("ElemStatLearn")
-install.packages('e1071')
-install.packages(earth)
+load(file ="dane_zaliczenie.RData")
+```
+
+**Instalacja i załadowanie bibliotek wykorzystywanych w analizie**
+```{r}
 library(earth)
 library(e1071)
 library(rpart)
-install.packages('adabag')
 library(adabag)
 library(rpart.plot)
 library(dplyr)
-library(ElemStatLearn)
 library(ggplot2)
 library(stringr)
 library("data.table")
 library(vip)
 ```
-**Sprawdzenie względnej liczby braków rekordów danych**
-```{r}
-cbind(colSums((is.na(proba_testowa)/15185)*100))
-cbind(colSums((is.na(proba_uczaca)/nrow(proba_uczaca))*100))
-```
+### Wstęp
+W niniejszym projekcie wykonana została analiza transakcji przy użyciu karty w celu predykcji statusu wykonania transakcji oraz wartości tejże transakcji. W procesie analitycznym przeprowadzona została eksploracja zbioru danych. W prognostycznej części niniejszego opracowania w celu przewidywania zmiennej objaśnianej jakościowej 'status' użyty został model drzewa klasyfikacyjnego. W późniejszym etapie prognozowana jest zmienne ilościowa 'amount', do której modelowania użyta została metoda drzewa regresyjnego oraz MARS.
 
-**Prezentacja zbioru danych próby uczącej oraz testowej**
+## Analiza eksploracyjna
+
+**Próbka danych próby uczącej oraz testowej**
 ```{r}
 head(proba_uczaca)
 head(proba_testowa)
 ```
-
+**Sprawdzenie względnej liczby braków danych**
+```{r}
+cbind(colSums((is.na(proba_testowa)/15185)*100))
+cbind(colSums((is.na(proba_uczaca)/nrow(proba_uczaca))*100))
+```
+Jak widać w modelu występują braki danych, natomiast związane są one głównie z tym, że w ramach rzędów połączone są transakcje inicjujące(~13.5%) oraz rekurencyjne (86.5%), gdzie część zmiennych dotyczy tylko jednej z tych transakcji. Te braki danych wykluczone będą w trakcie połączenia wszystkich transakcji rekurencyjnych z odpowiadającymi im transakcjami inicjującymi.
 
 **Sprawdzenie rozkładu odpowiedzi zmiennej status**
 ```{r}
 ggplot(proba_uczaca, aes(x = status)) +
   geom_bar()
 ```
-
+Jak widać na wykresie nieudane transakcje są znacząco żadsze niż transakcje udane.
 
 **Badanie informacji o zmiennej recurringaction**
 
@@ -84,11 +82,12 @@ proba_uczaca["description"][proba_uczaca["description"] == "Szybkie sprawdzanie 
 
 
 
-#Zmiana wartosci na other dla rzadkich typów klas karty
+**Zmiana wartosci na other dla rzadkich typów klas karty**
+```{r}
 card_level_names <- c(names(table(proba_uczaca$level))[as.vector(table(proba_uczaca$level))>100])
 proba_uczaca$level <- ifelse(proba_uczaca$level %in% card_level_names,proba_uczaca$level, "OTHER")
 table(proba_uczaca$level)
-
+```
 **Zmiana wartosci na other dla kategorii country code z niewielką liczbą obserwacji**
 ```{r}
 table(proba_uczaca$countrycode)
@@ -182,9 +181,10 @@ proba_uczaca_merged <- subset(proba_uczaca_merged, select = -c(initialtransactio
 init_browseragent,init_screenheight,init_screenwidth,screenwidth,screenheight,other_software_info,expirymonth,expiryyear,mccname, listtype,init_expirymonth,init_expiryyear,compare_to_expiry,expiry_date))
 ```
 
-**ZBIÓR DANYCH PRÓBY UCZĄCEJ**
+**Zbiór danych próby uczącej**
+```{r}
 proba_uczaca_model <- proba_uczaca_merged
-
+```
 **Przygotowanie zbioru testowego** 
 Zbiór testowy został przygotowany analogicznie do kroków w zbiorze uczącym. Zmienne rzadkie, które nie wystąpiły w zbiorze uczącym zostały ujednolicone przy pomocy kategorii OTHER/OT.
 ```{r}
@@ -274,10 +274,10 @@ init_browseragent,init_screenheight,init_screenwidth,screenwidth,screenheight,ot
 ```
 
 
-# ZADANIE 1 - PREDYKCJA ZMIENNEJ JAKOŚCIOWEJ STATUS
+## ZADANIE 1 - PREDYKCJA ZMIENNEJ JAKOŚCIOWEJ STATUS
 
-**Zmiana status na wartość dychotomiczną**
-
+**Zmiana zmiennej status na zmienną dychotomiczną**
+Zamiana statusu udanej transakcji na wartość 1 ("completed successfully") oraz wszystich wariantów nieudanych wartości na 0. 
 ```{r}
 proba_uczaca_model$status = as.character(proba_uczaca_model$status)
 proba_uczaca_model$status = as.factor(proba_uczaca_model$status)
@@ -285,7 +285,7 @@ proba_uczaca_model$status  = factor(x = proba_uczaca_model$status, levels=c("com
 ```
 W celu przeprowadzenia klasyfikacji ujednolicona została zmienna status a wartości udane (1) i nie udane (0).
 
-**Budowanie drzewa klasyfikacjnego (zmienna celu: status)**
+### Budowanie drzewa klasyfikacjnego (zmienna celu: status)
 ```{r}
 big.drzewo = rpart(
   formula = status~.,
@@ -326,7 +326,7 @@ rpart.plot(przyciete)
 Kolejnym etapem było doprowadzenie do przycięcia badanego drzewa klasyfikacyjnego na podstawie najniższego błędu. Optymalny poziom cp wyszedł około 0,005. Po przeliczeniu błędu mniejszego od obliczoneo progu odcięcia stwierdzono, iż optymalna liczba rozgałezień to 9.
 
 
-**Ważność zmiennych
+**Ważność zmiennych**
 ```{r}
 przyciete$variable.importance
 
@@ -373,7 +373,7 @@ Na podstawie tablicy krzyżowej możemy powiedzieć, że w przypadku przycięteg
 
 W celu poprawy predykcji modelu przeprowadziliśmy użycie baggingu. Próby dobierane są losowo, a algorytm baggingu każdy model uczy niezależnie od siebie.
 
-**Proces przeprowadzania baggingu (lasy losowe)**
+### Proces przeprowadzania baggingu (lasy losowe)
 **Podział próby uczącej na podpróbę uczącą i walidacyjną**
 ```{r}
 #podział grupy uczacej na uczacą i walidacje
@@ -471,10 +471,10 @@ predykcje_testowa <- predykcje_testowa.m
 Przypisanie statusu predykowanego do zbioru wyjściowego.
 
 
-# ZADANIE 2 - PREDYKCJA ZMIENNEJ ILOŚCIOWEJ AMOUNT
+## ZADANIE 2 - PREDYKCJA ZMIENNEJ ILOŚCIOWEJ AMOUNT
 
 
-**Wybór zmiennych do modelu**
+**Wybór zmiennych do modeli regresyjnych**
 ```{r}
 proba_uczaca_merged_nodel <- subset(proba_uczaca_merged_nodel, select = -c(initialtransaction_id,id,init_createdate, init_payclickedtime, payclickedtime,init_initialtransaction_id, createtime, init_createtime,browseragent,init_browseragent,init_screenheight,
 init_screenwidth,screenwidth,screenheight,other_software_info,expirymonth,expiryyear,expiry_date,init_expirymonth,init_expiryyear,compare_to_expiry,expiry_date,init_status, init_mccname,init_listtype,expired_card,recurringaction,status))
@@ -487,6 +487,7 @@ proba_testowa_model_amount <- proba_testowa_nodel
 ```
 Powyżej przeprowadzone zostało wyczyszczenie i dostosowane danych do modeli drzew regresyjnych.
 
+### Model drzewa regresyjnego
 **Porównanie modeli z ograniczaniem wartości skrajnych**
 ```{r}
 proba_uczaca_model_amount_1500 = filter(proba_uczaca_model_amount, amount <= 1500)
@@ -520,17 +521,15 @@ drzewo_amount_przeuczone_1000 = rpart(
 ```
 Wykonano 3 modele drzew przeuczonych na każdej z poszczególnych zbiorów obserwacji.
 
-**Reguły decyzyjne przeuczonego drzewa klasyfikacyjnego**
+**Reguły decyzyjne przeuczonego drzewa**
 ```{r}
-drzewo_amount_przeuczone$cptable
-drzewo_przeuczone$cptable
 big.drzewo_reg_decyzyjne = rpart.rules(x = big.drzewo)
 big.drzewo_reg_decyzyjne
 ```
 
 W powyższej części przedstawione zostały wartości jakie poprzez decyzyjność prowadziły do kolejnych decyzji jakie podejmowane zostały w badanym modelu regresyjnym.
 
-*** Przycinanie i porównanie drzew na podstawie średniego błędu**
+**Przycinanie i porównanie drzew na podstawie średniego błędu**
 
 ```{r}
 przycinanie <- function(drzewo) {
@@ -567,6 +566,10 @@ plot(x  =proba_uczaca_model_amount$amount, y = predykcje)
 plot(x  =proba_uczaca_model_amount_1500$amount, y = predykcje_1500)
 plot(x  =proba_uczaca_model_amount_1000$amount, y = predykcje_1000)
 ```
+Na podstawie wyników testów średniego błędu kwadratowego (1395.943), średniego błędu (37.36232) oraz wizualizacji danych postanowiliśmy o wyborze modelu z danymi poniżej wartości amount 1500. Warto zwrócić uwagę, że pod względem wartości błędu lepsze wyniki przejawiał model z ucięciem poniżej 1000 wartości zmiennej amount. Niemniej jednak w takim przypadku pozwolilbyśmy sobie na pozbawienie naszych predykcji wyników wyższych wartości, które są w odpowiednim stopniu interpretowane przez wybrany przez nas model 1500. Patrząc na wizualną część prezentacji zbudowanego przez nas drzewa możemy zwrócić uwagę na jego sporą konstrukcję składającą się z licznych rozgałęzień doprowadzających do dobrych wnioskowań decyzyjnych o wartości predykcji i zmiennej amount.
+
+
+
 **Wizualizacja przycietego drzewa**
 
 ```{r}
@@ -575,62 +578,73 @@ rpart.plot(drzewo_przyciete_1500,
 
 
 rpart.rules(drzewo_przyciete_1500, style = "tallw")
-
-predykcje_1500$error
 ```
 
-Na podstawie wyników testów średniego błędu kwadratowego, średniego błędu oraz wizualizacji danych postanowiliśmy o wyborze modelu z danymi poniżej wartości amount 1500. Warto zwrócić uwagę, że pod względem wartości błędu lepsze wyniki przejawiał model z ucięciem poniżej 1000 wartości zmiennej amount. Niemniej jednak w takim przypadku pozwolilbyśmy sobie na pozbawienie naszych predykcji wyników wyższych wartości, które są w odpowiednim stopniu interpretowane przez wybrany przez nas model 1500. Patrząc na wizualną część prezentacji zbudowanego przez nas drzewa możemy zwrócić uwagę na jego sporą konstrukcję składającą się z licznych rozgałęzień doprowadzających do dobrych wnioskowań decyzyjnych o wartości predykcji i zmiennej amount.
+**Predykcja statusu dla zbioru testowego**
+```{r}
+predykcje <- predict(drzewo.bagging.final, newdata = proba_testowa_merged)
+length(predykcje$class)
+to.merge <- data.frame(cbind(id = as.numeric(proba_testowa_merged$id),pred = ifelse(predykcje$class=="1","sukces","porażka")))
+predykcje_testowa.m <- merge(predykcje_testowa, to.merge, by.x = 'id', by.y = 'id', all.x = T)
+predykcje_testowa.m <- predykcje_testowa.m %>% dplyr::select(-status) %>% mutate(status = pred) %>% dplyr::select(-pred)
 
+predykcje_testowa <- predykcje_testowa.m
+```
+Przypisanie predykowanej wartości amount do zbioru wyjściowego.
 
-###MARS MODEL
+### Model predykcji - MARS
 
-# MARS                                                                        #
-#*****************************************************************************#
-
-#### Przykład wprowadzający ####
-# Wygenerować wartości dla dwóch zależnych od siebie zmiennych losowych
-#proba_testowa_model_amount
-#proba_uczaca_model_amount
-
-#Sprawdzenie braków danych
+**Sprawdzenie zmiennych braków danych**
+```{r}
 cbind(colSums((is.na(proba_uczaca_model_amount)/length(proba_uczaca_model_amount))*100))
 cbind(colSums((is.na(proba_testowa_model_amount)/length(proba_testowa_model_amount)))*100)
+```
 
-#Usunięcie zmiennych description ze względu na braki danych które nie mogą występować w przypadku modeli MARS
+**Wykluczenie braków danych z modleu uczącego**
+Usunięte zostały zmienne description oraz init_description ze względu na brak możliwości wykorzystania zmiennych z brakami w modelu MARS.
+```{r}
 proba_uczaca_model_MARS <- subset(proba_uczaca_model_amount, select = -c(init_description, description))
 proba_testowa_model_MARS <- subset(proba_testowa_model_amount, select = -c(init_description, description))
+```
 
-head(proba_testowa_model_amount)
-
-#szacowanie modelu MARS
+**Szacowanie wstępnego modelu MARS na wszystkich zmiennych**
+```{r}
 mars1 <- earth(amount ~.,
                data = proba_uczaca_model_MARS)
 summary(mars1)
-
-# Dokonać przeglądu wyników modelu 
-X <- mars1$bx # macierz faktycznych predyktorów (w finalnym modelu)
-
-punkty <- mars1$cuts
+```
+We wstępnym modelu na wszystkich zmiennych otrzymaliśmy model wykorzystujący w dużej mierze wartości init_amount do predykcji późniejszej wartości amount transakcji rekurencyjnej. Kolejnymi etapami przygotowania modelu będzie dopasowanie parametrów, w celu optymalizacji. Optymalizacja przeprowadzana będzie na podstawie minimalizacji wartości miary GCV, która jest parametrem regulującym obliczonym na podstawie stopnia dopasowania modelu i jego skomplikowania.
 
 
+```{r}
 mars1$selected.terms
 przycinanie <- mars1$prune.terms
-
+```
+***Wykresy błędów i gcv dla kolejnych par funkcji**
+```{r}
 plot(mars1$rss.per.subset)
 plot(mars1$gcv.per.subset)
+```
+Model budowany jest poprzez iteracyjne dodawanie par funkcji bazowych, co jak widać na wykresach zmniejsza wartość sumy kwadratów reszt w modelu oraz wartość parametru GCV co jest zjawiskiem pozytywnym. Poza wykorzystanie samych wartości zmiennych, można również do modelu wprowadzić interakcje między zmiennymi co zostanie wykonane w następnym kroku.
 
-# Zbudować model MARS pozwalając na interakcje
+**Model MARS z interakcjami zmiennych**
+```{r}
 mars2 <- earth(amount ~ .,
                data = proba_uczaca_model_MARS,
                degree = 3)
 summary(mars2)
+```
+Wprowadzenie interakcji do zmiennych modelu to
 
+```{r}
 earth(formula = amount ~ .,
       data = proba_uczaca_model_MARS,
       degree = 3,
       trace = 3) # drukuje szczegóły przebiegu fazy I i II
+```
 
-# Ustalić optymalne wartości parametrów ('nk', 'minspan', 'thresh')
+**Ustalanie optymalnych wartości parametrów modelu MARS**
+Ustalić optymalne wartości parametrów ('nk', 'minspan', 'thresh')
         # 'nk' - max liczba funkcji bazowych w pierwszej fazie
         # 'minspan' - min liczba obserwacji pomiędzy węzłami (dla minspan=1 węzły dla każdej obserwacji)
         # 'thresh' - min zwiększenie R2
